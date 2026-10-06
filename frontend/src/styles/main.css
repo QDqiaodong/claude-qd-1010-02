@@ -1,0 +1,29 @@
+:root {
+  /* 赭石主色 —— 与已建各仓主色均不重复 */
+  --primary: #a1887f;
+  --primary-deep: #7d665e;
+  --primary-soft: #bcae9f;
+  --primary-wash: #ece4df;
+  --ink: #3a312c;
+  --muted: #98867d;
+  --line: #e2d8d1;
+  --bg: #f6f1ed;
+
+  --el-color-primary: #a1887f;
+  --el-color-primary-light-3: #b89f96;
+  --el-color-primary-light-5: #c8b4ab;
+  --el-color-primary-light-7: #ddd1ca;
+  --el-color-primary-light-8: #e7ddd6;
+  --el-color-primary-light-9: #f1eae5;
+  --el-color-primary-dark-2: #8a7168;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+}
