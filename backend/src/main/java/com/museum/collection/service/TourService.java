@@ -18,8 +18,12 @@ import com.museum.collection.repository.TourRepository;
 /**
  * 导览业务。
  *
- * <p>核心规则：① 新增导览受展厅容量约束——该展厅已有导览数不得超过其 capacity，
- * 超出则拒绝（中文 BizException）；② 状态只能逐级推进：待开始 → 进行中 → 已完成。</p>
+ * <p>核心规则：① 新增导览受展厅容量约束——仅「待开始 / 进行中」的导览占用容量，
+ * 已完成导览仍保留在历史中，但不再阻塞同一展厅继续排期；
+ * ② 状态只能逐级推进：待开始 → 进行中 → 已完成。</p>
+ *
+ * <p>并发口径：排期和状态流转都先锁展厅行，再检查/锁场次行。同一展厅的容量增减
+ * 因此串行执行：并发结束只有一场会成功，并发排期不会超过容量，失败事务整体回滚。</p>
  */
 @Service
 public class TourService {
@@ -33,13 +37,18 @@ public class TourService {
     }
 
     public List<Tour> list(Long galleryId, String status) {
+        List<Tour> base;
         if (galleryId != null) {
-            return tourRepository.findByGalleryId(galleryId);
+            base = tourRepository.findByGalleryId(galleryId);
+        } else if (status != null && !status.isBlank()) {
+            base = tourRepository.findByStatus(status.trim());
+        } else {
+            base = tourRepository.findAll();
         }
-        if (status != null && !status.isBlank()) {
-            return tourRepository.findByStatus(status);
+        if (galleryId != null && status != null && !status.isBlank()) {
+            base = base.stream().filter(t -> status.trim().equals(t.getStatus())).toList();
         }
-        return tourRepository.findAll();
+        return base;
     }
 
     public Tour get(Long id) {
@@ -68,18 +77,29 @@ public class TourService {
         if (input.getGalleryCode() == null || input.getGalleryCode().isBlank()) {
             throw new BizException("必须指定所属展厅编号");
         }
-        Gallery gallery = galleryRepository.findByGalleryCode(input.getGalleryCode().trim())
-                .orElseThrow(() -> new BizException("展厅不存在：" + input.getGalleryCode()));
-        long used = tourRepository.countByGalleryId(gallery.getId());
-        if (used >= gallery.getCapacity()) {
-            throw new BizException("展厅「" + gallery.getName() + "」容量为 " + gallery.getCapacity()
-                    + "，当前已有 " + used + " 场导览，超出容量，无法新增导览");
-        }
+        String galleryCode = input.getGalleryCode().trim();
+        Gallery gallery = galleryRepository.findByGalleryCodeForUpdate(galleryCode)
+                .orElseThrow(() -> new BizException("展厅不存在：" + galleryCode));
+
         if (input.getTourNo() != null && !input.getTourNo().isBlank()) {
             tourRepository.findByTourNo(input.getTourNo().trim()).ifPresent(t -> {
                 throw new BizException("导览编号已存在：" + input.getTourNo());
             });
         }
+        String status = input.getStatus() != null && !input.getStatus().isBlank()
+                ? input.getStatus().trim() : "待开始";
+        if (!Dict.isValidTourStatus(status)) {
+            throw new BizException("导览状态非法：" + status);
+        }
+
+        long used = tourRepository
+                .findOccupyingByGalleryIdForUpdate(gallery.getId(), Dict.TOUR_OCCUPYING_STATUSES)
+                .size();
+        if (used >= gallery.getCapacity()) {
+            throw new BizException("展厅「" + gallery.getName() + "」容量为 " + gallery.getCapacity()
+                    + "，当前待开始/进行中已有 " + used + " 场导览，容量已满，无法新增导览");
+        }
+
         Tour tour = new Tour();
         tour.setTourNo(input.getTourNo() != null && !input.getTourNo().isBlank()
                 ? input.getTourNo().trim() : nextTourNo());
@@ -89,44 +109,44 @@ public class TourService {
         tour.setTitle(input.getTitle());
         tour.setGuideName(input.getGuideName());
         tour.setScheduledAt(input.getScheduledAt());
-        tour.setStatus(input.getStatus() != null && !input.getStatus().isBlank() ? input.getStatus() : "待开始");
-        if (!Dict.isValidTourStatus(tour.getStatus())) {
-            throw new BizException("导览状态非法：" + tour.getStatus());
-        }
+        tour.setStatus(status);
         tour.setCreatedAt(LocalDateTime.now());
         return tourRepository.save(tour);
     }
 
     @Transactional
     public Tour start(Long id) {
-        Tour existing = get(id);
-        if (!Dict.canTransferTour(existing.getStatus(), "进行中")) {
-            throw new BizException("导览状态不可从「" + existing.getStatus() + "」开始");
-        }
-        existing.setStatus("进行中");
-        return tourRepository.save(existing);
+        return transfer(id, "进行中");
     }
 
     @Transactional
     public Tour finish(Long id) {
-        Tour existing = get(id);
-        if (!Dict.canTransferTour(existing.getStatus(), "已完成")) {
-            throw new BizException("导览状态不可从「" + existing.getStatus() + "」结束");
-        }
-        existing.setStatus("已完成");
-        return tourRepository.save(existing);
+        return transfer(id, "已完成");
     }
 
     @Transactional
     public Tour transfer(Long id, String target) {
-        Tour existing = get(id);
         if (!Dict.isValidTourStatus(target)) {
             throw new BizException("导览状态非法：" + target);
         }
+        Long galleryId = tourRepository.findGalleryIdById(id)
+                .orElseThrow(() -> new BizException("导览不存在：" + id));
+        // 先锁展厅，再锁导览；与排期使用相同锁顺序，保证容量释放和新增不会互相读到中间状态
+        lockGallery(galleryId);
+        Tour existing = tourRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new BizException("导览不存在：" + id));
         if (!Dict.canTransferTour(existing.getStatus(), target)) {
             throw new BizException("导览状态不可从「" + existing.getStatus() + "」跳转到「" + target + "」");
         }
         existing.setStatus(target);
         return tourRepository.save(existing);
+    }
+
+    private Gallery lockGallery(Long galleryId) {
+        if (galleryId == null) {
+            throw new BizException("导览未关联展厅，不能流转");
+        }
+        return galleryRepository.findByIdForUpdate(galleryId)
+                .orElseThrow(() -> new BizException("展厅不存在：" + galleryId));
     }
 }

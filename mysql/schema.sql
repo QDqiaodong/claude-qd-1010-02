@@ -119,8 +119,9 @@ CREATE TABLE tour (
     title        VARCHAR(128) COMMENT '导览主题',
     guide_name   VARCHAR(32) COMMENT '讲解员',
     scheduled_at DATETIME COMMENT '安排时间',
-    status       VARCHAR(16) COMMENT '待开始 / 进行中 / 已完成',
-    created_at   DATETIME COMMENT '创建时间'
+    status       VARCHAR(16) COMMENT '待开始 / 进行中 / 已完成（仅前两种状态占用展厅容量）',
+    created_at   DATETIME COMMENT '创建时间',
+    KEY idx_tour_gallery_status (gallery_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ---------------- 会员 ----------------
@@ -232,7 +233,7 @@ INSERT INTO handover (handover_no, artifact_id, artifact_no, artifact_name, exhi
  NULL, NULL, NULL, NULL,
  UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 11 DAY);
 
--- 导览：展厅 1 容量 3（2 场）、展厅 2 容量 2（1 场）、展厅 3 容量 2（1 场），均未超容量
+-- 导览：展厅 1 容量 3（2 场占用）、展厅 2 容量 2（1 场占用）、展厅 3 容量 2（1 场占用），均未超容量；已完成不占容量
 INSERT INTO tour (tour_no, gallery_id, gallery_code, gallery_name, title, guide_name, scheduled_at, status, created_at) VALUES
 ('TO-2026-001', 1, 'GL-01', '青铜馆', '青铜铸造技艺解读',   '周明', UTC_TIMESTAMP() + INTERVAL 8 HOUR + INTERVAL 1 DAY,  '待开始', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 10 DAY),
 ('TO-2026-002', 1, 'GL-01', '青铜馆', '四羊方尊的前世今生', '李华', UTC_TIMESTAMP() + INTERVAL 8 HOUR,                 '进行中', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 10 DAY),
