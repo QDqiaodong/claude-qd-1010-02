@@ -44,6 +44,12 @@ public final class Dict {
 
     public static final List<String> TOUR_STATUSES = List.of("待开始", "进行中", "已完成");
 
+    /**
+     * 占用展厅容量的导览状态：只有「待开始 / 进行中」计入已用场次；
+     * 「已完成」保留在历史与按状态筛选结果中，但不再阻塞同展厅的新排期。
+     */
+    public static final List<String> TOUR_OCCUPYING = List.of("待开始", "进行中");
+
     // ---------------- 会员 ----------------
     public static final List<String> MEMBER_LEVELS = List.of("普通", "银卡", "金卡");
 

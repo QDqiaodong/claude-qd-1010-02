@@ -110,6 +110,8 @@ CREATE TABLE gallery (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ---------------- 导览 ----------------
+-- 容量口径：只有 待开始 / 进行中 占用所属展厅容量；已完成 保留在历史与状态筛选中但不阻塞新排期。
+-- idx_tour_gallery_status 同时服务「按展厅+状态筛选」与容量加锁计数（SELECT ... FOR UPDATE 走索引只锁占用行）。
 CREATE TABLE tour (
     id           BIGINT AUTO_INCREMENT PRIMARY KEY,
     tour_no      VARCHAR(32) NOT NULL UNIQUE COMMENT '导览编号 TO-2026-001',
@@ -120,7 +122,8 @@ CREATE TABLE tour (
     guide_name   VARCHAR(32) COMMENT '讲解员',
     scheduled_at DATETIME COMMENT '安排时间',
     status       VARCHAR(16) COMMENT '待开始 / 进行中 / 已完成',
-    created_at   DATETIME COMMENT '创建时间'
+    created_at   DATETIME COMMENT '创建时间',
+    KEY idx_tour_gallery_status (gallery_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ---------------- 会员 ----------------
@@ -232,12 +235,14 @@ INSERT INTO handover (handover_no, artifact_id, artifact_no, artifact_name, exhi
  NULL, NULL, NULL, NULL,
  UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 11 DAY);
 
--- 导览：展厅 1 容量 3（2 场）、展厅 2 容量 2（1 场）、展厅 3 容量 2（1 场），均未超容量
+-- 导览：覆盖 待开始 / 进行中 / 已完成 三种状态。
+-- 容量只统计 待开始 + 进行中：展厅 1 占用 2/3、展厅 2 占用 1/2（另 1 场已完成不占名额，可直接再排）、展厅 3 占用 1/2
 INSERT INTO tour (tour_no, gallery_id, gallery_code, gallery_name, title, guide_name, scheduled_at, status, created_at) VALUES
 ('TO-2026-001', 1, 'GL-01', '青铜馆', '青铜铸造技艺解读',   '周明', UTC_TIMESTAMP() + INTERVAL 8 HOUR + INTERVAL 1 DAY,  '待开始', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 10 DAY),
 ('TO-2026-002', 1, 'GL-01', '青铜馆', '四羊方尊的前世今生', '李华', UTC_TIMESTAMP() + INTERVAL 8 HOUR,                 '进行中', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 10 DAY),
 ('TO-2026-003', 2, 'GL-02', '书画馆', '千里江山图赏析',     '王芳', UTC_TIMESTAMP() + INTERVAL 8 HOUR + INTERVAL 2 DAY,  '待开始', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 8 DAY),
-('TO-2026-004', 3, 'GL-03', '陶瓷馆', '唐三彩的釉色之美',   '陈静', UTC_TIMESTAMP() + INTERVAL 8 HOUR + INTERVAL 3 DAY,  '待开始', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 6 DAY);
+('TO-2026-004', 3, 'GL-03', '陶瓷馆', '唐三彩的釉色之美',   '陈静', UTC_TIMESTAMP() + INTERVAL 8 HOUR + INTERVAL 3 DAY,  '待开始', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 6 DAY),
+('TO-2026-005', 2, 'GL-02', '书画馆', '古代书画装裱科普',   '王芳', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 2 DAY,  '已完成', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 5 DAY);
 
 INSERT INTO member (member_no, name, phone, level, joined_at, points, created_at) VALUES
 ('MB-0001', '张伟', '13800001111', '普通', '2024-03-01', 1200, UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 20 DAY),
